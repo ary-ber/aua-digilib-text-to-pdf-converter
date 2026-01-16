@@ -9,7 +9,7 @@ import re
 from urllib.parse import urljoin
 import os
 
-digilib_url = '''https://digilib.aua.am/book/373/%D4%BF%D5%A1%D5%B4%D5%A5%D5%B6%D5%AB%D6%81'''
+digilib_url = '''YOUR URL HERE'''
 
 def sanitize_filename(name):
     """Removes characters from a string that are invalid for a filename."""
