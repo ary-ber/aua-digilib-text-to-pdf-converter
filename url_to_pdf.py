@@ -9,7 +9,7 @@ import re
 from urllib.parse import urljoin
 import os
 
-digilib_url = '''YOUR URL HERE'''
+digilib_url = '''https://digilib.aua.am/book/373/%D4%BF%D5%A1%D5%B4%D5%A5%D5%B6%D5%AB%D6%81'''
 
 def sanitize_filename(name):
     """Removes characters from a string that are invalid for a filename."""
@@ -27,6 +27,12 @@ def get_book_details(main_url):
     book_title_tag = details_panel.find('div').find('h1') if details_panel else None
     book_title = book_title_tag.text.strip() if book_title_tag else "Untitled Book"
 
+    # Extract the book cover url from the specified div
+    cover_panel = soup.find('div', id='id40c')
+    cover_img_tag = cover_panel.find('img') if cover_panel else None
+    cover_img_url = cover_img_tag.get('src') if cover_img_tag else None   
+    # Convert relative URL to absolute
+    cover_img_url = urljoin(main_url, cover_img_url) if cover_img_url else None
 
     toc_div = soup.find('div', class_='tree well')
     if not toc_div:
@@ -44,7 +50,7 @@ def get_book_details(main_url):
         raise ValueError("No chapters found in the table of contents.")
 
     print(f"Found {len(chapters)} chapters for the book: '{book_title}'")
-    return book_title, chapters
+    return book_title, cover_img_url, chapters
 
 class PDF(FPDF):
     """Custom PDF class to add a page number footer."""
@@ -57,7 +63,7 @@ class PDF(FPDF):
             self.set_font('Arial', 'I', 8) # Fallback
         self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
-def create_book_pdf(book_title, chapters):
+def create_book_pdf(book_title, cover_img_url, chapters):
     """
     Generates a PDF file from the book's chapters, including titles, images, and content.
     """
@@ -90,6 +96,28 @@ def create_book_pdf(book_title, chapters):
     pdf.add_font('ArmenianFont', '', font_regular_path, uni=True)
     pdf.add_font('ArmenianFont', 'B', font_bold_path, uni=True)
     pdf.add_font('ArmenianFont', 'I', font_italic_path, uni=True)
+
+    # Create the cover page if cover image exists
+    if cover_img_url:
+        # Save current margins
+        orig_l, orig_t, orig_r = pdf.l_margin, pdf.t_margin, pdf.r_margin
+        
+        pdf.set_margins(0, 0, 0)
+        pdf.add_page()
+
+        cover_img_response = requests.get(cover_img_url)
+        cover_img_response.raise_for_status()
+
+        # Save image to a temporary file to be embedded in the PDF
+        cover_img_filename = "temp_cover_image_for_pdf.jpg"
+        with open(cover_img_filename, 'wb') as f:
+            f.write(cover_img_response.content)
+
+        pdf.image(cover_img_filename, x=0, y=0, w=pdf.w)   
+        os.remove(cover_img_filename) # Clean up the temporary image file
+
+        pdf.set_margins(orig_l, orig_t, orig_r)
+        pdf.set_xy(pdf.l_margin, pdf.t_margin)
 
     # Create the title page
     pdf.add_page()
@@ -227,7 +255,7 @@ def create_book_pdf(book_title, chapters):
 
 if __name__ == "__main__":
     try:
-        book_title, chapters = get_book_details(digilib_url)
-        create_book_pdf(book_title, chapters)
+        book_title, cover_img_url, chapters = get_book_details(digilib_url)
+        create_book_pdf(book_title, cover_img_url, chapters)
     except Exception as e:
         print(f"A critical error occurred: {e}")
