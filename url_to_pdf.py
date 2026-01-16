@@ -16,7 +16,7 @@ def sanitize_filename(name):
     return re.sub(r'[\\/*?:"<>|]',"", name).strip()
 
 def get_book_details(main_url):
-    """Fetches the book title and the list of chapters from the main book page."""
+    """Fetches the book title, book cover url and the list of chapters from the main book page."""
     print(f"Fetching book details from: {main_url}")
     response = requests.get(main_url)
     response.raise_for_status()  # Raise an exception for bad status codes
@@ -28,8 +28,10 @@ def get_book_details(main_url):
     book_title = book_title_tag.text.strip() if book_title_tag else "Untitled Book"
 
     # Extract the book cover url from the specified div
-    cover_panel = soup.find('div', id='id40c')
-    cover_img_tag = cover_panel.find('img') if cover_panel else None
+    cover_img_tag = None
+    if details_panel:
+        cover_img_tag = details_panel.find('img', src=re.compile(r'^/image/works/work_id_is_'))
+
     cover_img_url = cover_img_tag.get('src') if cover_img_tag else None   
     # Convert relative URL to absolute
     cover_img_url = urljoin(main_url, cover_img_url) if cover_img_url else None
@@ -99,11 +101,11 @@ def create_book_pdf(book_title, cover_img_url, chapters):
 
     # Create the cover page if cover image exists
     if cover_img_url:
+        print('Adding cover image.')
         # Save current margins
         orig_l, orig_t, orig_r = pdf.l_margin, pdf.t_margin, pdf.r_margin
         
         pdf.set_margins(0, 0, 0)
-        pdf.add_page()
 
         cover_img_response = requests.get(cover_img_url)
         cover_img_response.raise_for_status()
@@ -113,6 +115,7 @@ def create_book_pdf(book_title, cover_img_url, chapters):
         with open(cover_img_filename, 'wb') as f:
             f.write(cover_img_response.content)
 
+        pdf.add_page()
         pdf.image(cover_img_filename, x=0, y=0, w=pdf.w)   
         os.remove(cover_img_filename) # Clean up the temporary image file
 
@@ -124,7 +127,7 @@ def create_book_pdf(book_title, cover_img_url, chapters):
     pdf.set_font('ArmenianFont', 'B', 24)
     pdf.multi_cell(0, 15, book_title, 0, 'C')
     pdf.ln(20)
-
+    
     # Loop through each chapter and add it to the PDF
     for i, chapter in enumerate(chapters):
         print(f"Processing Chapter {i+1}/{len(chapters)}: {chapter['title']}")
@@ -244,7 +247,7 @@ def create_book_pdf(book_title, cover_img_url, chapters):
         # Add gap between TOC entries for readability.
         pdf.ln(4)
 
-
+    
     try:
         pdf.output(pdf_filename)
         print(f"\nSuccessfully created PDF: {pdf_filename}")
