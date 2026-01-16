@@ -16,7 +16,7 @@ def sanitize_filename(name):
     return re.sub(r'[\\/*?:"<>|]',"", name).strip()
 
 def get_book_details(main_url):
-    """Fetches the book title and the list of chapters from the main book page."""
+    """Fetches the book title, book cover url and the list of chapters from the main book page."""
     print(f"Fetching book details from: {main_url}")
     response = requests.get(main_url)
     response.raise_for_status()  # Raise an exception for bad status codes
@@ -27,6 +27,14 @@ def get_book_details(main_url):
     book_title_tag = details_panel.find('div').find('h1') if details_panel else None
     book_title = book_title_tag.text.strip() if book_title_tag else "Untitled Book"
 
+    # Extract the book cover url from the specified div
+    cover_img_tag = None
+    if details_panel:
+        cover_img_tag = details_panel.find('img', src=re.compile(r'^/image/works/work_id_is_'))
+
+    cover_img_url = cover_img_tag.get('src') if cover_img_tag else None   
+    # Convert relative URL to absolute
+    cover_img_url = urljoin(main_url, cover_img_url) if cover_img_url else None
 
     toc_div = soup.find('div', class_='tree well')
     if not toc_div:
@@ -44,7 +52,7 @@ def get_book_details(main_url):
         raise ValueError("No chapters found in the table of contents.")
 
     print(f"Found {len(chapters)} chapters for the book: '{book_title}'")
-    return book_title, chapters
+    return book_title, cover_img_url, chapters
 
 class PDF(FPDF):
     """Custom PDF class to add a page number footer."""
@@ -57,7 +65,7 @@ class PDF(FPDF):
             self.set_font('Arial', 'I', 8) # Fallback
         self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
-def create_book_pdf(book_title, chapters):
+def create_book_pdf(book_title, cover_img_url, chapters):
     """
     Generates a PDF file from the book's chapters, including titles, images, and content.
     """
@@ -91,12 +99,35 @@ def create_book_pdf(book_title, chapters):
     pdf.add_font('ArmenianFont', 'B', font_bold_path, uni=True)
     pdf.add_font('ArmenianFont', 'I', font_italic_path, uni=True)
 
+    # Create the cover page if cover image exists
+    if cover_img_url:
+        print('Adding cover image.')
+        # Save current margins
+        orig_l, orig_t, orig_r = pdf.l_margin, pdf.t_margin, pdf.r_margin
+        
+        pdf.set_margins(0, 0, 0)
+
+        cover_img_response = requests.get(cover_img_url)
+        cover_img_response.raise_for_status()
+
+        # Save image to a temporary file to be embedded in the PDF
+        cover_img_filename = "temp_cover_image_for_pdf.jpg"
+        with open(cover_img_filename, 'wb') as f:
+            f.write(cover_img_response.content)
+
+        pdf.add_page()
+        pdf.image(cover_img_filename, x=0, y=0, w=pdf.w)   
+        os.remove(cover_img_filename) # Clean up the temporary image file
+
+        pdf.set_margins(orig_l, orig_t, orig_r)
+        pdf.set_xy(pdf.l_margin, pdf.t_margin)
+
     # Create the title page
     pdf.add_page()
     pdf.set_font('ArmenianFont', 'B', 24)
     pdf.multi_cell(0, 15, book_title, 0, 'C')
     pdf.ln(20)
-
+    
     # Loop through each chapter and add it to the PDF
     for i, chapter in enumerate(chapters):
         print(f"Processing Chapter {i+1}/{len(chapters)}: {chapter['title']}")
@@ -216,7 +247,7 @@ def create_book_pdf(book_title, chapters):
         # Add gap between TOC entries for readability.
         pdf.ln(4)
 
-
+    
     try:
         pdf.output(pdf_filename)
         print(f"\nSuccessfully created PDF: {pdf_filename}")
@@ -227,7 +258,7 @@ def create_book_pdf(book_title, chapters):
 
 if __name__ == "__main__":
     try:
-        book_title, chapters = get_book_details(digilib_url)
-        create_book_pdf(book_title, chapters)
+        book_title, cover_img_url, chapters = get_book_details(digilib_url)
+        create_book_pdf(book_title, cover_img_url, chapters)
     except Exception as e:
         print(f"A critical error occurred: {e}")
